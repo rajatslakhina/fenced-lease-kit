@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (Swift 6.0) — build + test, warnings are errors
+    runs-on: ubuntu-latest
+    container: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+
+      # A `swift build` on an up-to-date tree compiles nothing and still prints
+      # "Build complete!", so the zero-warnings claim is only meaningful from a
+      # cold cache. There is no cache here, but the flag is what makes it
+      # machine-enforced rather than asserted in prose.
+      - name: Build (warnings are errors)
+        run: swift build --build-tests -Xswiftc -warnings-as-errors
+
+      - name: Test
+        run: swift test
+
+  apple:
+    name: macOS 15 — every target, plus an iOS Simulator compile
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      # Builds FencedLeaseUI for real: on Linux the SwiftUI sources compile away
+      # behind `#if canImport(SwiftUI)`, so this is the only job that type-checks
+      # them.
+      - name: Build every target
+        run: swift build --build-tests -Xswiftc -warnings-as-errors
+
+      - name: Test
+        run: swift test
+
+      # `generic/platform=iOS Simulator` deliberately, never a named device. Pinning
+      # to `name=iPhone 16,OS=latest` would tie the job to whichever simulator
+      # *runtimes* happen to be installed on that day's runner image, and they are
+      # not guaranteed — a compile-only check needs no device to exist.
+      - name: Compile FencedLeaseUI for the iOS Simulator
+        run: |
+          xcodebuild build \
+            -scheme FencedLeaseUI \
+            -destination 'generic/platform=iOS Simulator'
